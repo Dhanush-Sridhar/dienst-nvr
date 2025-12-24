@@ -2,7 +2,7 @@
   "time": {
     "untilForTime": "Bis {{time}}",
     "last7": "Letzte 7 Tage",
-    "untilForRestart": "Bis Frigate neu startet.",
+    "untilForRestart": "Bis Anwendung neu startet.",
     "today": "Heute",
     "yesterday": "Gestern",
     "thisWeek": "Diese Woche",
@@ -205,7 +205,7 @@
       "title": "Live"
     },
     "review": "Überprüfen",
-    "restart": "Frigate neu starten",
+    "restart": "Anwendung neu starten",
     "darkMode": {
       "light": "Hell",
       "label": "Dunkler Modus",
