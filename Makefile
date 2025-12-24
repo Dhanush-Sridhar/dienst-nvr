@@ -2,15 +2,22 @@ default_target: local
 
 COMMIT_HASH := $(shell git log -1 --pretty=format:"%h"|tail -1)
 VERSION = 0.17.0
-IMAGE_REPO ?= dhanushsridhar94/dienst-nvr
+IMAGE_REPO ?= ghcr.io/dhanush-sridhar/dienst-nvr
 GITHUB_REF_NAME ?= $(shell git rev-parse --abbrev-ref HEAD)
 BOARDS= #Initialized empty
 
-include docker/*/*.mk
+# Comment out to disable board-specific builds (rk, rpi, trt, rocm, synaptics)
+# include docker/*/*.mk
 
-build-boards: $(BOARDS:%=build-%)
+#build-boards: $(BOARDS:%=build-%)
 
-push-boards: $(BOARDS:%=push-%)
+#push-boards: $(BOARDS:%=push-%)
+# Empty targets when boards are disabled
+build-boards:
+	@echo "Board builds disabled - building amd64 only"
+
+push-boards:
+	@echo "Board pushes disabled - pushing amd64 only"
 
 version:
 	echo 'VERSION = "$(VERSION)-$(COMMIT_HASH)"' > frigate/version.py
@@ -37,17 +44,21 @@ arm64:
 		--tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) \
 		--platform linux/arm64
 
-build: version amd64 arm64
+#build: version amd64 arm64
+#	docker buildx build --target=frigate --file docker/main/Dockerfile . \
+#		--tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) \
+#		--platform linux/amd64
+build: version amd64 
 	docker buildx build --target=frigate --file docker/main/Dockerfile . \
 		--tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) \
-		--platform linux/arm64/v8,linux/amd64
+		--platform linux/amd64
 
 push: push-boards
 	docker buildx build --target=frigate --file docker/main/Dockerfile . \
 		--tag $(IMAGE_REPO):latest \
 		--tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) \
 		--tag $(IMAGE_REPO):${GITHUB_REF_NAME}-$(COMMIT_HASH) \
-		--platform linux/arm64/v8,linux/amd64 \
+		--platform linux/amd64 \
 		--push
 
 run: local
