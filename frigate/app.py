@@ -339,6 +339,7 @@ class FrigateApp:
             self.onvif_controller,
             self.ptz_metrics,
             comms,
+            self.event_metadata_updater,
         )
 
     def start_detectors(self) -> None:

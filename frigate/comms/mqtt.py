@@ -242,6 +242,12 @@ class MqttClient(Communicator):
                     self.on_mqtt_command,
                 )
 
+            # Subscribe to event creation topic
+            self.client.message_callback_add(
+                f"{self.mqtt_config.topic_prefix}/{name}/event/create",
+                self.on_mqtt_command,
+            )
+
         if self.config.notifications.enabled_in_config:
             self.client.message_callback_add(
                 f"{self.mqtt_config.topic_prefix}/notifications/set",

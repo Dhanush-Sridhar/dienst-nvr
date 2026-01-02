@@ -3,11 +3,17 @@
 import datetime
 import json
 import logging
+import random
+import string
 from typing import Any, Callable, Optional, cast
 
 from frigate.camera import PTZMetrics
 from frigate.camera.activity_manager import AudioActivityManager, CameraActivityManager
 from frigate.comms.base_communicator import Communicator
+from frigate.comms.event_metadata_updater import (
+    EventMetadataPublisher,
+    EventMetadataTypeEnum,
+)
 from frigate.comms.webpush import WebPushClient
 from frigate.config import BirdseyeModeEnum, FrigateConfig
 from frigate.config.camera.updater import (
@@ -51,12 +57,16 @@ class Dispatcher:
         onvif: OnvifController,
         ptz_metrics: dict[str, PTZMetrics],
         communicators: list[Communicator],
+        event_metadata_updater: EventMetadataPublisher | None = None,
     ) -> None:
         self.config = config
         self.config_updater = config_updater
         self.onvif = onvif
         self.ptz_metrics = ptz_metrics
         self.comms = communicators
+        self.event_metadata_updater = (
+            event_metadata_updater or EventMetadataPublisher()
+        )
         self.camera_activity = CameraActivityManager(config, self.publish)
         self.audio_activity = AudioActivityManager(config, self.publish)
         self.model_state: dict[str, ModelStatusTypesEnum] = {}
@@ -289,10 +299,24 @@ class Dispatcher:
             "onConnect": handle_on_connect,
         }
 
-        if topic.endswith("set") or topic.endswith("ptz") or topic.endswith("suspend"):
+        if (
+            topic.endswith("set")
+            or topic.endswith("ptz")
+            or topic.endswith("suspend")
+            or topic.endswith("create")
+        ):
             try:
                 parts = topic.split("/")
-                if len(parts) == 3 and topic.endswith("set"):
+                if len(parts) == 3 and topic.endswith("create"):
+                    # example cam_name/event/create payload={"label": "test", ...}
+                    # (topic prefix is removed by mqtt client before calling dispatcher)
+                    camera_name = parts[0]
+                    command_type = parts[1]  # "event"
+                    if command_type == "event":
+                        self._on_event_create_command(camera_name, payload)
+                    else:
+                        logger.error(f"Unknown create command type: {command_type}")
+                elif len(parts) == 3 and topic.endswith("set"):
                     # example /cam_name/detect/set payload=ON|OFF
                     camera_name = parts[-3]
                     command = parts[-2]
@@ -841,3 +865,58 @@ class Dispatcher:
             genai_settings,
         )
         self.publish(f"{camera_name}/review_descriptions/state", payload, retain=True)
+
+    def _on_event_create_command(self, camera_name: str, payload: str) -> None:
+        """Callback for event creation topic.
+        Payload should be JSON like: {"label": "test", "duration": 30, "include_recording": true, ...}
+        """
+        # Validate camera exists
+        if camera_name not in self.config.cameras:
+            logger.error(f"Camera {camera_name} not found for event creation")
+            return
+
+        # Parse JSON payload
+        try:
+            payload_data = json.loads(payload)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON payload for event creation: {e}")
+            return
+
+        # Extract label (required)
+        label = payload_data.get("label")
+        if not label:
+            logger.error("Label is required for event creation")
+            return
+
+        # Extract optional parameters
+        duration = payload_data.get("duration", 30)
+        include_recording = payload_data.get("include_recording", True)
+        score = payload_data.get("score", 0.0)
+        sub_label = payload_data.get("sub_label")
+        draw = payload_data.get("draw", {})
+
+        # Generate event ID (same logic as REST API)
+        now = datetime.datetime.now().timestamp()
+        rand_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        event_id = f"{now}-{rand_id}"
+
+        logger.info(
+            f"Creating manual event via MQTT: camera={camera_name}, label={label}, event_id={event_id}"
+        )
+
+        # Publish event creation (same as REST API)
+        self.event_metadata_updater.publish(
+            (
+                now,
+                camera_name,
+                label,
+                event_id,
+                include_recording,
+                score,
+                sub_label,
+                duration,
+                "mqtt",
+                draw,
+            ),
+            EventMetadataTypeEnum.manual_event_create.value,
+        )
